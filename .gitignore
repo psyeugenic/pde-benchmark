@@ -1,0 +1,6 @@
+rebar
+*.sw[a-z]
+pde_benchmark
+ebin/
+*.png
+*.dat

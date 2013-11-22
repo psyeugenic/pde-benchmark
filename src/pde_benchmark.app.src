@@ -1,0 +1,12 @@
+{application, pde_benchmark,
+ [
+  {description, "Process decay with ETS benchmark"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, {pde_benchmark_app, []}},
+  {env, []}
+ ]}.
