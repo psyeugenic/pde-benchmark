@@ -9,6 +9,7 @@
 -module(pde_benchmark_speedometer).
 
 -export([
+	sigmoid/1,
 	start/1
     ]).
 
@@ -21,6 +22,7 @@
 	speed,
 	logs,
 	pts,
+	au,
 	us,
 	su
     }).
@@ -29,16 +31,19 @@ start(Args) ->
     spawn_link(fun() -> init(Args) end).
 
 init([Parent,Delay,Target]) ->
-    _ = erlang:system_flag(scheduler_wall_time, true),
+    _  = erlang:system_flag(scheduler_wall_time, true),
+    Me = self(),
+    spawn_link(fun() -> pressure_timer_loop(Me,60000) end),
     loop(#s{
 	    target = Target,
-	    pressure = 120,
+	    pressure = 100,
 	    delay = Delay,
 	    parent = Parent,
 	    speed = 0,
 	    logs = openlog(),
 	    pts = {os:timestamp(), 0},
 	    t0 = os:timestamp(),
+	    au = 0,
 	    us = [0,0,0,0,0,0,0,0,0,0,0,0],
 	    su = lists:sort(erlang:statistics(scheduler_wall_time))
 	}).
@@ -51,6 +56,15 @@ loop(#s{delay=D}=S) ->
 	    loop(handle_tmo(S))
     end.
 
+pressure_timer_loop(Pid,Delay) ->
+    receive after Delay ->
+	    Pid ! calibreate_pressure,
+	    pressure_timer_loop(Pid,Delay)
+    end.
+	    
+
+handle_msg(calibrate_pressure,#s{ au = AvgU, pts = {T0, U0}} = S) ->
+    S;
 handle_msg(_,S) -> S.
 
 handle_tmo(#s{ t0 = T0, logs=Logs, parent = P, su = Su0, us = Us0 } = S0) ->
@@ -59,11 +73,11 @@ handle_tmo(#s{ t0 = T0, logs=Logs, parent = P, su = Su0, us = Us0 } = S0) ->
     Us1   = shift_list(U,Us0),
     Util  = lists:sum(Us1)/length(Us1),
     S1    = calibrate_pressure(Util,S0),
-    N     = creation_speed(Util, S1),
+    S2    = #s{ speed = N } = update_creation_speed(Util, S1),
     ok    = log(Util, N, T0),
     _     = P ! {set_speed, N},
     datalog(Util,Logs),
-    S1#s{ speed = N, su = Su1, us = Us1 }.
+    S2#s{ speed = N, au = Util, su = Su1, us = Us1 }.
 
 %% aux
 
@@ -89,21 +103,18 @@ shift_list(U,[_|Us]) ->
     lists:reverse([U|lists:reverse(Us)]).
 
 calibrate_pressure(_U1,S) -> S.
-%calibrate_pressure(U1,#s{pts={T0,U0}, target =T, pressure=P }=S) ->
-%	T1 = os:timestamp(),
-%	case timer:now_diff(T1, T0) div 1000000 of
-%	    Df when Df > 60 andalso T - U1 > 0.35 andalso abs(U1-U0) < 0.1 ->
-%		S#s{ pts={T1,U1}, pressure = P + 3 };
-%	    Df when Df > 60 ->
-%		S#s{ pts={T1,U1} };
-%	    _ ->
-%		S
-%	end.
 
-creation_speed(Util,#s{pressure=P,target = T}) when T > Util ->
+update_creation_speed(Util,S) ->
+    N = creation_speed(Util,S),
+    S#s{ speed = N }.
+
+creation_speed(Util,#s{pressure=P,target = T}) when Util < T  ->
     Fact = T - Util,
-    trunc((Fact * P)) + 1;
-creation_speed(_,_) -> 1.
+    trunc(P*Fact);
+creation_speed(_,_) -> 0.
+
+
+sigmoid(V) -> V/math:sqrt(1 + V*V).
 
 utilization(Ts1,Ts0) ->
     {N, Sum} = lists:foldl(fun

@@ -32,7 +32,7 @@ close(#log{fd =Fd}) ->
     ok.
 
 write(#log{ fd = Fd, t0 = T0}, Val) ->
-    Df = timer:now_diff(os:timestamp(),T0) div 1000,
+    Df = timer:now_diff(os:timestamp(),T0) div 1000000,
     write(Fd, Df, Val),
     ok.
 

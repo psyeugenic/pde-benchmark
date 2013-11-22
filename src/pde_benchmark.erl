@@ -11,15 +11,20 @@
 -define(ets_key(K), K).
 -define(ets_val(V), {V,"aljgklfjglkjdlksjglksdjglkjsdglkjsdlgjlskjglkfdsjglsdfjgfdigjfgjfdsigjlsdfigjfdsilgfldisgjsdilgjsf"}).
 -define(ets_upd(V), {((element(1,V) * (element(1,V) + 3) * 7) rem (1 bsl 32)),element(2,V)}).
--define(ets_batch_work, 2).
+-define(ets_batch_work, 3).
 
 -export([
+	go/0,
 	main/1
     ]).
 
+go() -> main([]).
+
 main(_) ->
-    Dl  = 50,
-    N   = 5000,
+    Dl  = 10,
+    N   = 6000,
+    io:format("per process wakeup interval: ~w ms~n", [Dl]),
+    io:format("ets entries generated: ~w items~n", [N]),
     Ds  = data(N),
     Tid = setup_ets(?MODULE,[]),
     ok  = populate_ets(Tid, Ds),
@@ -28,16 +33,24 @@ main(_) ->
     ok.
 
 init(Tid,Ks,Delay) ->
-    pde_benchmark_speedometer:start([self(),2000,0.65]),
-    start_creation_timer(self(),300),
+    Target = 0.65,
+    Me = self(),
+    spawn_link(fun() ->
+		receive after 1000*60*5 -> Me ! done end
+	end),
+    pde_benchmark_speedometer:start([self(),2000,Target]),
+    io:format("speedometer interval: ~w ms~n", [2000]),
+    io:format("target scheduler utilization: ~.6f~n", [Target]),
+    start_creation_timer(self(),600),
     loop(Tid,Ks,Delay,1).
 
 loop(Tid,Ks,Delay,Speed) ->
     receive
+	done -> io:format("bye~n"), erlang:halt(),receive after infinity -> ok end;
 	{set_speed, Speed1} ->
 	    loop(Tid,Ks,Delay,Speed1);
 	create_workers ->
-	    create_workers(Tid,Ks,Delay,Speed),
+	    _ = spawn_link(fun() -> create_workers(Tid,Ks,Delay,Speed) end),
 	    loop(Tid,Ks,Delay,Speed)
     end.
 
@@ -45,8 +58,8 @@ create_workers(_Tid,_Ks,_Delay,0) -> [];
 create_workers(Tid,Ks,Delay,N) -> 
     Me = self(),
     SKs = shuffle(Ks),
-    [spawn_link(fun() -> worker(Me,Tid,SKs,Delay) end)|
-	create_workers(Tid,Ks,Delay,N-1)].
+    receive after 1 -> ok end,
+    [spawn_link(fun() -> worker(Me,Tid,SKs,Delay) end)|create_workers(Tid,Ks,Delay,N-1)].
 
 worker(Pid,Tid,Ks,T) ->
     worker(Pid,Tid,Ks,T,?ets_batch_work).
